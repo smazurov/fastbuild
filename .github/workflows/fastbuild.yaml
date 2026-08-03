@@ -30,9 +30,7 @@ jobs:
       run: |
         mkdir -p openwrt_bin ghcache stcache dlcache
         if [ -z "$(ls -A ghcache 2>&-)" ] || [ -z "$(ls -A stcache 2>&-)" ]; then
-          # Seeding is best-effort. Upstream only publishes base-bldcache-{ubi2-oc,ubi2,SNAPSHOT},
-          # so a new profile name has no image of its own; fall back to SNAPSHOT, which is the
-          # closest existing profile. Must not fail the step -- the shell runs under `bash -e`.
+          # Best-effort: a new profile has no image of its own, and this runs under `bash -e`.
           for I in ghcr.io/w1700k/fastbuild_base:base-bldcache-${{ matrix.target }} \
                    ghcr.io/w1700k/fastbuild_base:base-bldcache-SNAPSHOT; do
             if docker pull "$I" 2>&-; then
@@ -51,9 +49,7 @@ jobs:
         curl -Z --create-dirs -Lo user/default/files/etc/apk/repositories.d/distfeeds.list https://w1700k.github.io/builds/distfeeds.list
         curl -Z -Lo user/default/files/etc/vermagic.txt https://w1700k.github.io/builds/vermagic.txt
         [ -f "user/${{ matrix.target }}/config.diff" ] || { echo "::error::config.diff not found for ${{ matrix.target }}"; exit 1; }
-        # Two sequential rsyncs, not one multi-source call. With `rsync -aI a/ b/ dest/`
-        # the FIRST source wins a same-named file, so user/default/custom.sh silently
-        # shadowed the profile's own custom.sh and none of its changes were applied.
+        # Two passes: with one multi-source rsync the FIRST source wins a same-named file.
         rsync -aI --mkpath user/default/ user/current/ 2>&-
         rsync -aI --mkpath user/${{ matrix.target }}/ user/current/ 2>&-
         if [ -f "user/${{ matrix.target }}/custom.sh" ]; then
@@ -100,25 +96,16 @@ jobs:
 
     - name: Compile OpenWrt
       run: |
-        # `exit $rc` below is what makes a failed `make world` fail this step. Without it
-        # the script exited with ccache's status (always 0), so a broken build looked
-        # green and only surfaced later as a missing firmware/profiles.json.
-        #
-        # That also switched the c->s retry on for the first time, and the old retry was a
-        # second full verbose `make world` -- 57k log lines. `make -j1 V=sc` instead: make
-        # skips packages whose stamps already exist, so it resumes at the failed one and
-        # prints the command that broke. Output streams live; do not pipe it through
-        # tail/head, which buffers and shows nothing until the retry has finished.
         docker_exec -e MODE=c DK bash -c '
           bash $DK_PROFILE/pre_compile.sh 2>&- ||:
           cd $DK_OPENWRT
           export FORCE_UNSAFE_CONFIGURE=1 CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros CCACHE_NOHASHDIR=true CCACHE_COMPILERCHECK=content
           make -j$(($(nproc) + 1)) V=$MODE; rc=$?
           staging_dir/host/bin/ccache -d /ghcache -sz ||:
-          exit $rc
+          exit $rc  # else the step exits with ccache status and a broken build looks green
         ' || {
           echo "::group::verbose retry (make -j1 V=sc)"
-          docker_exec DK bash -c 'cd $DK_OPENWRT && make -j1 V=sc'
+          docker_exec DK bash -c 'cd $DK_OPENWRT && make -j1 V=sc'  # unpiped: tail would buffer
           echo "::endgroup::"
           exit 1
         }
