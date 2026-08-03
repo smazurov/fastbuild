@@ -51,7 +51,15 @@ jobs:
         curl -Z --create-dirs -Lo user/default/files/etc/apk/repositories.d/distfeeds.list https://w1700k.github.io/builds/distfeeds.list
         curl -Z -Lo user/default/files/etc/vermagic.txt https://w1700k.github.io/builds/vermagic.txt
         [ -f "user/${{ matrix.target }}/config.diff" ] || { echo "::error::config.diff not found for ${{ matrix.target }}"; exit 1; }
-        rsync -aI --mkpath user/default/ user/${{ matrix.target }}/ user/current/ 2>&-
+        # Two sequential rsyncs, not one multi-source call. With `rsync -aI a/ b/ dest/`
+        # the FIRST source wins a same-named file, so user/default/custom.sh silently
+        # shadowed the profile's own custom.sh and none of its changes were applied.
+        rsync -aI --mkpath user/default/ user/current/ 2>&-
+        rsync -aI --mkpath user/${{ matrix.target }}/ user/current/ 2>&-
+        if [ -f "user/${{ matrix.target }}/custom.sh" ]; then
+          [ "$(sha256sum < user/${{ matrix.target }}/custom.sh)" = "$(sha256sum < user/current/custom.sh)" ] \
+            || { echo "::error::user/current/custom.sh is not the profile's"; exit 1; }
+        fi
         echo 'CONFIG_CCACHE_DIR="/ghcache"' >> user/current/config.diff
         sudo tee /etc/docker/daemon.json <<< '{"max-concurrent-downloads":50,"max-concurrent-uploads":50,"experimental":true}'
         sudo systemctl reload docker

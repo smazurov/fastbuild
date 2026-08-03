@@ -22,6 +22,21 @@
 # verify from the artifact: mt76 package version must read 2026.08.01~b2704cf5.
 set -euo pipefail
 
+# This REPLACES user/default/custom.sh -- only one survives the rsync into
+# user/current/ -- so its two moves must happen here, or those files stay in files/
+# and get baked into the rootfs as junk. 998-single-wiphy.patch matters on this
+# hardware: three radios behind a single phy0.
+LUCI_ASU=feeds/luci/applications/luci-app-attendedsysupgrade/htdocs/luci-static/resources/view/attendedsysupgrade
+if [ -f files/overview.js ] && [ -d "$LUCI_ASU" ]; then
+  mv files/overview.js "$LUCI_ASU/overview.js"
+  echo "custom.sh: installed attendedsysupgrade overview.js"
+fi
+if [ -f files/998-single-wiphy.patch ]; then
+  mkdir -p feeds/luci/modules/luci-mod-status/patches
+  mv files/998-single-wiphy.patch feeds/luci/modules/luci-mod-status/patches/998-single-wiphy.patch
+  echo "custom.sh: installed 998-single-wiphy.patch"
+fi
+
 MK=package/kernel/mt76/Makefile
 SHA=b2704cf5a4068b672bf47ad5bf6b4802b6770a90
 DATE=2026-08-01
