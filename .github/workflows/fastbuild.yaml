@@ -1,11 +1,11 @@
-name: fastbuild main-mt76
+name: fastbuild offload-oc-mt76
 on: workflow_dispatch
 permissions: write-all
 jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ubuntu-24.04-arm
-    strategy: {fail-fast: false, matrix: {target: [main-mt76]}}
+    strategy: {fail-fast: false, matrix: {target: [offload-oc-mt76]}}
     env:
       DK_OPENWRT: /bld/openwrt
       DK_BIN: /bld/openwrt_bin
@@ -97,8 +97,12 @@ jobs:
             bash $DK_PROFILE/pre_compile.sh 2>&- ||:
             cd $DK_OPENWRT
             export FORCE_UNSAFE_CONFIGURE=1 CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros CCACHE_NOHASHDIR=true CCACHE_COMPILERCHECK=content
-            make -j$(($(nproc) + 1)) V=$MODE
+            make -j$(($(nproc) + 1)) V=$MODE; rc=$?
             staging_dir/host/bin/ccache -d /ghcache -sz ||:
+            # Without this the script exits with ccache status (always 0), so a failed
+            # `make world` looked successful and only surfaced later as a missing
+            # firmware/profiles.json. It also silently defeated the c->s verbose retry.
+            exit $rc
           ' && break
         done
 
