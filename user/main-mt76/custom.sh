@@ -25,3 +25,27 @@ grep -q "^PKG_SOURCE_VERSION:=${SHA}$" "$MK" || { echo "custom.sh: pin not appli
 grep -q "^PKG_MIRROR_HASH:=skip$" "$MK" || { echo "custom.sh: mirror hash not cleared" >&2; exit 1; }
 
 echo "custom.sh: mt76 pinned to ${SHA} (${DATE})"
+
+# Graft the useful W1700K LuCI apps from the OpenW1700k fork. They are plain LuCI
+# packages under package/ there, with no dependency on the fork's kernel patches to
+# *build*. Whether flowsense/npu display anything meaningful on a mainline kernel is
+# untested -- they read fork-specific counters.
+#
+# airoha_fan is deliberately NOT taken from the fork: mainline already ships an
+# identical copy at target/linux/airoha/an7581/base-files/etc/init.d/airoha_fan.
+FORK_URL=https://github.com/OpenWRT-fanboy/OpenW1700k
+FORK_REF=ubi2
+FORK_PKGS="luci-app-mlo luci-app-w1700k-fancontrol luci-app-airoha-npu luci-app-airoha-flowsense"
+
+SRC=$(mktemp -d)
+git clone --depth 1 --filter=blob:none --sparse -b "$FORK_REF" "$FORK_URL" "$SRC/fork"
+git -C "$SRC/fork" sparse-checkout set $(for p in $FORK_PKGS; do printf 'package/%s ' "$p"; done)
+
+mkdir -p package/w1700k
+for p in $FORK_PKGS; do
+  [ -d "$SRC/fork/package/$p" ] || { echo "custom.sh: fork package $p missing" >&2; exit 1; }
+  cp -a "$SRC/fork/package/$p" package/w1700k/
+  echo "CONFIG_PACKAGE_${p}=y" >> .config
+  echo "custom.sh: grafted $p"
+done
+rm -rf "$SRC"
