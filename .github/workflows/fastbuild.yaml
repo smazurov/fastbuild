@@ -77,6 +77,9 @@ jobs:
           cd $DK_OPENWRT
           if [ ! -d .git ]; then git init; fi
           git remote set-url origin $REPO_URL 2>&- || git remote add origin $REPO_URL
+          # The -inc image is committed after custom.sh edited the tree, so a warm
+          # run starts dirty and `pull --rebase` refuses.
+          git rev-parse --verify HEAD &>/dev/null && git reset --hard &>/dev/null ||:
           git fetch && git checkout $REPO_BRANCH && git pull --rebase
           { git log origin/main..$REPO_BRANCH --oneline || echo "(no commits ahead of main)"; } > files/build_info
           mountpoint $DK_BIN || { echo "::error::not mounted" >&2; exit 1; }
