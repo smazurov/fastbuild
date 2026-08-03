@@ -125,12 +125,12 @@ jobs:
         docker commit -a openwrt-fastbuild -m "Building at $(date)" DK $IMG_INC
         docker push $IMG_INC
 
-    - name: Delete old caches
+    # The build writes these as root inside the container. `Create release` held the only
+    # chown, so a failed compile skipped it and the save died on `tar: ... Permission
+    # denied` -- run 30780378830 lost cache-offload-oc-mt76 that way.
+    - name: Reclaim cache ownership
       if: always()
-      run: |
-        for p in dlcache. cache-${{ matrix.target }}.; do
-          gh cache list --json key,id --jq '.[] | select(.key | startswith("'"$p"'")) | .id' | xargs -r gh cache delete
-        done ||:
+      run: sudo chown -R "$(id -u):$(id -g)" ghcache stcache dlcache
 
     - uses: actions/cache/save@v5
       if: always()
@@ -138,3 +138,22 @@ jobs:
     - uses: actions/cache/save@v5
       if: always()
       with: {path: dlcache, key: '${{ steps.dl.outputs.cache-primary-key }}'}
+
+    # After the saves, never before. Deleting first meant a failed save left no entry at
+    # all; the current run's own key is excluded so it survives the sweep.
+    - name: Delete old caches
+      if: always()
+      run: |
+        for p in dlcache. cache-${{ matrix.target }}.; do
+          keep="$p${{ github.run_id }}"
+          gh cache list --json key,id --jq ".[] | select(.key | startswith(\"$p\")) | select(.key != \"$keep\") | .id" | xargs -r gh cache delete
+        done ||:
+
+    # actions/cache/save downgrades a tar failure to a warning, so the run looks green
+    # while the cache is gone. Make that loud.
+    - name: Verify caches saved
+      if: always()
+      run: |
+        for k in cache-${{ matrix.target }}.${{ github.run_id }} dlcache.${{ github.run_id }}; do
+          gh cache list --json key --jq '.[].key' | grep -qxF "$k" || { echo "::error::cache $k was not saved"; exit 1; }
+        done
