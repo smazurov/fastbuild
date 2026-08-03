@@ -1,11 +1,11 @@
-name: fastbuild ubi2-oc, ubi2, snapshot
+name: fastbuild main-mt76
 on: workflow_dispatch
 permissions: write-all
 jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ubuntu-24.04-arm
-    strategy: {fail-fast: false, matrix: {target: [ubi2-oc, ubi2, SNAPSHOT]}}
+    strategy: {fail-fast: false, matrix: {target: [main-mt76]}}
     env:
       DK_OPENWRT: /bld/openwrt
       DK_BIN: /bld/openwrt_bin
