@@ -54,6 +54,20 @@ grep -q "^PKG_SOURCE_VERSION:=${SHA}$" "$MK" || { echo "custom.sh: mt76 pin not 
 grep -q "^PKG_MIRROR_HASH:=skip$" "$MK" || { echo "custom.sh: mirror hash not cleared" >&2; exit 1; }
 echo "custom.sh: mt76 pinned to ${SHA} (${DATE})"
 
+# The fork carries a local fix for the zero-length PS-sync-TLV infinite loop in
+# mt7996/mcu.c. Upstream landed an equivalent fix as 06b69763 ("mt7996: fix infinite
+# loop in PS sync event parsing", openwrt/mt76#1109), which is an ancestor of the pin
+# above -- so the local patch now fails all 3 hunks. Drop it; the fix is still present,
+# it just comes from upstream.
+#
+# Verified locally against a b2704cf5 checkout: this is the ONLY one of the fork's 11
+# mt76 patches that conflicts. The other 10 apply cleanly in sequence.
+PS_PATCH=package/kernel/mt76/patches/9990-wifi-mt76-mt7996-validate-PS-sync-event-TLVs.patch
+if [ -f "$PS_PATCH" ]; then
+  rm -f "$PS_PATCH"
+  echo "custom.sh: dropped PS-sync TLV patch (superseded by upstream 06b69763)"
+fi
+
 # Fail loudly if the patch moved or was renamed upstream -- silently building WITH it
 # would invalidate the entire point of this profile.
 [ -f "$FDB_PATCH" ] || { echo "custom.sh: $FDB_PATCH not found; tree changed, refusing" >&2; exit 1; }

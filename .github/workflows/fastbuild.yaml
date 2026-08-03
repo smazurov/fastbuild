@@ -100,19 +100,27 @@ jobs:
 
     - name: Compile OpenWrt
       run: |
-        for mode in c s; do
-          docker_exec -e MODE=$mode DK bash -c '
-            bash $DK_PROFILE/pre_compile.sh 2>&- ||:
-            cd $DK_OPENWRT
-            export FORCE_UNSAFE_CONFIGURE=1 CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros CCACHE_NOHASHDIR=true CCACHE_COMPILERCHECK=content
-            make -j$(($(nproc) + 1)) V=$MODE; rc=$?
-            staging_dir/host/bin/ccache -d /ghcache -sz ||:
-            # Without this the script exits with ccache status (always 0), so a failed
-            # `make world` looked successful and only surfaced later as a missing
-            # firmware/profiles.json. It also silently defeated the c->s verbose retry.
-            exit $rc
-          ' && break
-        done
+        # `exit $rc` below is what makes a failed `make world` fail this step. Without it
+        # the script exited with ccache's status (always 0), so a broken build looked
+        # green and only surfaced later as a missing firmware/profiles.json.
+        #
+        # That also switched the c->s retry on for the first time. A verbose retry is a
+        # second full build and produced a 57k-line log, so retry with `V=sc` on a single
+        # job instead: it re-runs only the failed subtree and prints the actual command,
+        # which is what the diagnosis needs.
+        docker_exec -e MODE=c DK bash -c '
+          bash $DK_PROFILE/pre_compile.sh 2>&- ||:
+          cd $DK_OPENWRT
+          export FORCE_UNSAFE_CONFIGURE=1 CCACHE_SLOPPINESS=file_stat_matches,include_file_mtime,time_macros CCACHE_NOHASHDIR=true CCACHE_COMPILERCHECK=content
+          make -j$(($(nproc) + 1)) V=$MODE; rc=$?
+          staging_dir/host/bin/ccache -d /ghcache -sz ||:
+          exit $rc
+        ' || {
+          echo "::group::verbose retry (make -j1 V=sc)"
+          docker_exec DK bash -c 'cd $DK_OPENWRT && make -j1 V=sc' 2>&1 | tail -400
+          echo "::endgroup::"
+          exit 1
+        }
 
     - name: Create release
       run: |
