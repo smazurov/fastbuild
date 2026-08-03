@@ -30,8 +30,20 @@ jobs:
       run: |
         mkdir -p openwrt_bin ghcache stcache dlcache
         if [ -z "$(ls -A ghcache 2>&-)" ] || [ -z "$(ls -A stcache 2>&-)" ]; then
-          I=ghcr.io/w1700k/fastbuild_base:base-bldcache-${{ matrix.target }}
-          docker pull $I 2>&- && { docker create --name CA $I >/dev/null; for d in ghcache stcache dlcache; do docker cp CA:/$d/. $d; done; }
+          # Seeding is best-effort. Upstream only publishes base-bldcache-{ubi2-oc,ubi2,SNAPSHOT},
+          # so a new profile name has no image of its own; fall back to SNAPSHOT, which is the
+          # closest existing profile. Must not fail the step -- the shell runs under `bash -e`.
+          for I in ghcr.io/w1700k/fastbuild_base:base-bldcache-${{ matrix.target }} \
+                   ghcr.io/w1700k/fastbuild_base:base-bldcache-SNAPSHOT; do
+            if docker pull "$I" 2>&-; then
+              echo "seeding build cache from $I"
+              docker create --name CA "$I" >/dev/null
+              for d in ghcache stcache dlcache; do docker cp CA:/$d/. $d; done
+              docker rm CA >/dev/null
+              break
+            fi
+          done
+          echo "cache seeding finished"
         fi
 
     - name: Initialize environment
