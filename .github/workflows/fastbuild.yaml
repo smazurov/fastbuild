@@ -104,10 +104,11 @@ jobs:
         # the script exited with ccache's status (always 0), so a broken build looked
         # green and only surfaced later as a missing firmware/profiles.json.
         #
-        # That also switched the c->s retry on for the first time. A verbose retry is a
-        # second full build and produced a 57k-line log, so retry with `V=sc` on a single
-        # job instead: it re-runs only the failed subtree and prints the actual command,
-        # which is what the diagnosis needs.
+        # That also switched the c->s retry on for the first time, and the old retry was a
+        # second full verbose `make world` -- 57k log lines. `make -j1 V=sc` instead: make
+        # skips packages whose stamps already exist, so it resumes at the failed one and
+        # prints the command that broke. Output streams live; do not pipe it through
+        # tail/head, which buffers and shows nothing until the retry has finished.
         docker_exec -e MODE=c DK bash -c '
           bash $DK_PROFILE/pre_compile.sh 2>&- ||:
           cd $DK_OPENWRT
@@ -117,7 +118,7 @@ jobs:
           exit $rc
         ' || {
           echo "::group::verbose retry (make -j1 V=sc)"
-          docker_exec DK bash -c 'cd $DK_OPENWRT && make -j1 V=sc' 2>&1 | tail -400
+          docker_exec DK bash -c 'cd $DK_OPENWRT && make -j1 V=sc'
           echo "::endgroup::"
           exit 1
         }
